@@ -12,40 +12,6 @@ export async function POST(req: Request) {
 
     const cleanApiKey = userApiKey.trim();
 
-    // STEP 1: Ask Google what models this specific API key is allowed to use
-    const modelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${cleanApiKey}`);
-    if (!modelsRes.ok) {
-       const errText = await modelsRes.text();
-       return new Response(JSON.stringify({ error: `API Key rejected by Google: ${errText}` }), { status: modelsRes.status });
-    }
-    
-    const modelsData = await modelsRes.json();
-    const availableModels = modelsData.models || [];
-    
-    // STEP 2: Filter for models that support JSON Schema and PDF generation (1.5 or 2.0)
-    let validModels = availableModels
-        .filter((m: any) => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
-        .map((m: any) => m.name.replace('models/', ''))
-        .filter((name: string) => name.includes('1.5') || name.includes('2.0'));
-
-    // Sort to prioritize the most stable flash models first
-    validModels.sort((a: string, b: string) => {
-        const score = (name: string) => {
-            if (name === 'gemini-1.5-flash') return 10;
-            if (name === 'gemini-2.0-flash') return 9;
-            if (name.includes('gemini-1.5-flash')) return 8; 
-            if (name.includes('gemini-1.5-pro')) return 7;
-            return 0;
-        };
-        return score(b) - score(a);
-    });
-
-    if (validModels.length === 0) {
-        return new Response(JSON.stringify({ 
-            error: `Your API key does not have access to any Gemini 1.5 or 2.0 models. Please generate a new API key in a NEW project at aistudio.google.com.` 
-        }), { status: 400 });
-    }
-
     const promptText = `
       You are an expert ATS resume parser. Extract the information from this PDF resume and format it strictly as JSON.
       Do not invent any information. If a field is not found in the resume, leave it empty.
@@ -70,7 +36,7 @@ export async function POST(req: Request) {
         certifications: { type: "ARRAY", items: { type: "STRING" } }
       }
     };
-    
+
     const payload = {
       contents: [{
         parts: [
@@ -81,42 +47,43 @@ export async function POST(req: Request) {
       generationConfig: { responseMimeType: "application/json", responseSchema: schema }
     };
 
-    let data = null;
-    let errorMessages: string[] = [];
+    // We strictly use gemini-1.5-flash as it has the highest free tier limits (15 Requests Per Minute)
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${cleanApiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
-    // Try the top 3 available models your key has access to
-    const modelsToTry = validModels.slice(0, 3);
-
-    for (const model of modelsToTry) {
-      try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanApiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          errorMessages.push(`[${model}] failed: ${errText}`);
-          continue; 
-        }
-
-        data = await res.json();
-        break; // Success! Exit the loop.
-      } catch (e: any) {
-        errorMessages.push(`[${model}] threw an exception: ${e.message}`);
+    if (!res.ok) {
+      const status = res.status;
+      const errText = await res.text();
+      
+      // Handle the strict 429 Quota Exceeded error gracefully
+      if (status === 429) {
+          return new Response(JSON.stringify({ 
+              error: "Google API Quota Exceeded (15 requests/min limit). Please wait exactly 60 seconds and try again. If you generated a new API key, ensure you clicked 'Save' in the Settings menu!" 
+          }), { status: 429 });
       }
+      
+      // Handle Invalid API Key errors gracefully
+      if (status === 400 || status === 403) {
+          return new Response(JSON.stringify({ 
+              error: "Your API Key is invalid or restricted. Please go to Settings and paste a fresh API key from Google AI Studio." 
+          }), { status: status });
+      }
+
+      return new Response(JSON.stringify({ error: `Google API Error (${status}): ${errText}` }), { status: status });
     }
 
-    if (!data) {
-      const combinedErrors = errorMessages.join(' \n\n ');
-      return new Response(JSON.stringify({ 
-          error: `All allowed models failed. \n\nModels attempted: ${modelsToTry.join(', ')}\n\nErrors:\n${combinedErrors}` 
-      }), { status: 400 });
+    const data = await res.json();
+    
+    if (!data.candidates || data.candidates.length === 0) {
+       return new Response(JSON.stringify({ error: "Google Gemini returned an empty response. The PDF might be unreadable." }), { status: 400 });
     }
 
     let textResponse = data.candidates[0].content.parts[0].text;
     textResponse = textResponse.replace(/```json/gi, '').replace(/```/gi, '').trim();
+
     const generatedJson = JSON.parse(textResponse);
 
     return new Response(JSON.stringify(generatedJson), { status: 200, headers: { 'Content-Type': 'application/json' } });
