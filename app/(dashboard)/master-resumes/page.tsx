@@ -17,7 +17,6 @@ export default function MasterResumes() {
   const [resumes, setResumes] = useState<any[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   
-  // Editor States
   const [title, setTitle] = useState("");
   const [data, setData] = useState<any>(emptyResume);
   const [saving, setSaving] = useState(false);
@@ -33,15 +32,11 @@ export default function MasterResumes() {
   };
 
   const handleCreateNew = () => {
-    setTitle("");
-    setData(emptyResume);
-    setActiveId("new");
+    setTitle(""); setData(emptyResume); setActiveId("new");
   };
 
   const handleEdit = (resume: any) => {
-    setTitle(resume.title);
-    setData(resume.data || emptyResume);
-    setActiveId(resume.id);
+    setTitle(resume.title); setData(resume.data || emptyResume); setActiveId(resume.id);
   };
 
   const handleDelete = async (id: string) => {
@@ -67,37 +62,50 @@ export default function MasterResumes() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Reset input so you can upload the same file again if it fails
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    
     setParsing(true);
     try {
-      // 1. Get API Key from user settings
       const settingsDoc = await getDoc(doc(db, "users", user!.uid, "settings", "config"));
       const apiKey = settingsDoc.data()?.customApiKey;
       if (!apiKey) throw new Error("Please configure your AI API Key in Settings first.");
 
-      // 2. Read File as Base64 string
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onload = async () => {
-        const base64 = (reader.result as string).split(',')[1];
-        
-        // 3. Send to our Next.js API route
-        const res = await fetch('/api/ai/parse', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64Pdf: base64, userApiKey: apiKey })
-        });
+        try {
+          const base64 = (reader.result as string).split(',')[1];
+          
+          const res = await fetch('/api/ai/parse', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64Pdf: base64, userApiKey: apiKey })
+          });
 
-        if (!res.ok) {
-           const err = await res.json();
-           throw new Error(err.error);
+          // Safe error handling for Vercel timeouts
+          if (!res.ok) {
+            const errText = await res.text();
+            try {
+              const errJson = JSON.parse(errText);
+              throw new Error(errJson.error || "Parsing failed.");
+            } catch {
+              throw new Error(`Server Error (${res.status}). The file might be too large or timed out.`);
+            }
+          }
+
+          const parsedData = await res.json();
+          setData(parsedData);
+          if(!title) setTitle(`${parsedData.personalInfo?.fullName || 'My'} Resume`);
+          
+          alert("Resume parsed successfully! Please review the fields.");
+        } catch (innerErr: any) {
+          alert(innerErr.message);
+        } finally {
+          setParsing(false);
         }
-
-        const parsedData = await res.json();
-        setData(parsedData);
-        if(!title) setTitle(`${parsedData.personalInfo?.fullName || 'My'} Resume`);
-        setParsing(false);
       };
-      reader.onerror = () => { throw new Error("Failed to read file"); };
+      reader.onerror = () => { throw new Error("Failed to read the file from your device."); };
     } catch(err: any) {
       alert(err.message);
       setParsing(false);
@@ -106,7 +114,6 @@ export default function MasterResumes() {
 
   const updateField = (key: string, value: any) => setData({ ...data, [key]: value });
 
-  // --- LIST VIEW ---
   if (!activeId) {
     return (
       <div className="space-y-6 max-w-4xl mx-auto">
@@ -138,7 +145,6 @@ export default function MasterResumes() {
     );
   }
 
-  // --- EDITOR VIEW ---
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-20">
       
@@ -156,20 +162,19 @@ export default function MasterResumes() {
       </div>
 
       {/* PDF Uploader Banner */}
-      <div className="bg-blue-50 border border-blue-200 p-5 rounded-xl flex items-center justify-between">
+      <div className="bg-blue-50 border border-blue-200 p-5 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h3 className="font-bold text-blue-900">Autofill with AI</h3>
           <p className="text-sm text-blue-700">Upload your existing PDF resume and AI will fill out all the fields below automatically.</p>
         </div>
         <input type="file" accept="application/pdf" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
-        <button onClick={() => fileInputRef.current?.click()} disabled={parsing} className="bg-white border border-blue-300 text-blue-700 px-4 py-2 rounded-md flex items-center gap-2 text-sm font-bold shadow-sm hover:bg-blue-100 transition disabled:opacity-50">
+        <button onClick={() => fileInputRef.current?.click()} disabled={parsing} className="whitespace-nowrap bg-white border border-blue-300 text-blue-700 px-4 py-2 rounded-md flex items-center gap-2 text-sm font-bold shadow-sm hover:bg-blue-100 transition disabled:opacity-50">
           {parsing ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
           {parsing ? 'Parsing PDF...' : 'Upload PDF'}
         </button>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-5 space-y-8">
-        
         {/* Personal Info */}
         <section>
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3 border-b pb-2">Personal Info</h2>
