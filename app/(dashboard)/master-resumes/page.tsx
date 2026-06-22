@@ -64,12 +64,18 @@ export default function MasterResumes() {
 
     // Reset input so you can upload the same file again if it fails
     if (fileInputRef.current) fileInputRef.current.value = "";
+
+    // 1. Check File Size (Max 3MB to prevent Vercel 413 Payload Too Large error)
+    if (file.size > 3 * 1024 * 1024) {
+      alert("File is too large! Please ensure your PDF is smaller than 3MB.");
+      return;
+    }
     
     setParsing(true);
     try {
       const settingsDoc = await getDoc(doc(db, "users", user!.uid, "settings", "config"));
       const apiKey = settingsDoc.data()?.customApiKey;
-      if (!apiKey) throw new Error("Please configure your AI API Key in Settings first.");
+      if (!apiKey) throw new Error("Missing AI API Key! Please go to the Settings page and enter your Gemini API Key.");
 
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -83,15 +89,16 @@ export default function MasterResumes() {
             body: JSON.stringify({ base64Pdf: base64, userApiKey: apiKey })
           });
 
-          // Safe error handling for Vercel timeouts
+          // 2. Properly extract the REAL error message without masking it
           if (!res.ok) {
-            const errText = await res.text();
-            try {
-              const errJson = JSON.parse(errText);
-              throw new Error(errJson.error || "Parsing failed.");
-            } catch {
-              throw new Error(`Server Error (${res.status}). The file might be too large or timed out.`);
-            }
+             let errorMsg = `Server Error (${res.status})`;
+             try {
+               const errJson = await res.json();
+               errorMsg = errJson.error || errorMsg;
+             } catch {
+               errorMsg = `Server Error (${res.status}): Vercel timeout or payload limits exceeded.`;
+             }
+             throw new Error(errorMsg);
           }
 
           const parsedData = await res.json();
@@ -100,7 +107,7 @@ export default function MasterResumes() {
           
           alert("Resume parsed successfully! Please review the fields.");
         } catch (innerErr: any) {
-          alert(innerErr.message);
+          alert(`Parsing Failed: ${innerErr.message}`);
         } finally {
           setParsing(false);
         }
@@ -148,7 +155,6 @@ export default function MasterResumes() {
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-20">
       
-      {/* Header */}
       <div className="flex items-center gap-3 bg-white p-4 border rounded-xl shadow-sm sticky top-0 z-10">
         <button onClick={() => setActiveId(null)} className="p-2 bg-gray-100 rounded-md text-gray-600"><ChevronLeft size={20}/></button>
         <input 
@@ -161,7 +167,6 @@ export default function MasterResumes() {
         </button>
       </div>
 
-      {/* PDF Uploader Banner */}
       <div className="bg-blue-50 border border-blue-200 p-5 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h3 className="font-bold text-blue-900">Autofill with AI</h3>
@@ -175,7 +180,6 @@ export default function MasterResumes() {
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-5 space-y-8">
-        {/* Personal Info */}
         <section>
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3 border-b pb-2">Personal Info</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -189,20 +193,17 @@ export default function MasterResumes() {
           </div>
         </section>
 
-        {/* Summary */}
         <section>
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3 border-b pb-2">Professional Summary</h2>
           <textarea rows={4} className="w-full border rounded-md p-2 text-sm" value={data.summary || ""} onChange={e => updateField('summary', e.target.value)} />
         </section>
 
-        {/* Skills */}
         <section>
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3 border-b pb-2">Skills</h2>
           <textarea rows={2} placeholder="React, Node.js, Typescript..." className="w-full border rounded-md p-2 text-sm" value={data.skills?.join(", ") || ""} onChange={e => updateField('skills', e.target.value.split(',').map(s=>s.trim()))} />
           <p className="text-xs text-gray-500 mt-1">Separate skills with commas</p>
         </section>
 
-        {/* Experience */}
         <section>
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3 border-b pb-2">Experience</h2>
           <div className="space-y-4">
@@ -224,7 +225,6 @@ export default function MasterResumes() {
           </div>
         </section>
 
-        {/* Projects */}
         <section>
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3 border-b pb-2">Projects</h2>
           <div className="space-y-4">
@@ -245,7 +245,6 @@ export default function MasterResumes() {
           </div>
         </section>
 
-        {/* Education */}
         <section>
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3 border-b pb-2">Education</h2>
           <div className="space-y-4">
@@ -263,13 +262,11 @@ export default function MasterResumes() {
           </div>
         </section>
 
-        {/* Certifications */}
         <section>
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3 border-b pb-2">Certifications</h2>
           <textarea rows={3} placeholder="React JS Certification - Udemy..." className="w-full border rounded-md p-2 text-sm" value={data.certifications?.join("\n") || ""} onChange={e => updateField('certifications', e.target.value.split('\n').filter(Boolean))} />
           <p className="text-xs text-gray-500 mt-1">One certification per line</p>
         </section>
-
       </div>
     </div>
   );
