@@ -1,3 +1,4 @@
+import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
 
 export const runtime = 'edge';
@@ -11,6 +12,9 @@ export async function POST(req: Request) {
     }
 
     const cleanApiKey = userApiKey.trim();
+    
+    // Initialize the new client exactly as requested
+    const ai = new GoogleGenAI({ apiKey: cleanApiKey });
 
     const promptText = `
       You are an expert ATS resume parser. Extract the information from this PDF resume and format it strictly as JSON.
@@ -37,59 +41,38 @@ export async function POST(req: Request) {
       }
     };
 
-    const payload = {
-      contents: [{
-        parts: [
-          { text: promptText },
-          { inlineData: { mimeType: "application/pdf", data: base64Pdf } }
-        ]
-      }],
-      generationConfig: { responseMimeType: "application/json", responseSchema: schema }
-    };
-
-    // We strictly use gemini-1.5-flash as it has the highest free tier limits (15 Requests Per Minute)
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${cleanApiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+    // Call the new model using the updated method structure
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash', 
+      contents: [
+        promptText,
+        { inlineData: { mimeType: "application/pdf", data: base64Pdf } }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema
+      }
     });
 
-    if (!res.ok) {
-      const status = res.status;
-      const errText = await res.text();
-      
-      // Handle the strict 429 Quota Exceeded error gracefully
-      if (status === 429) {
-          return new Response(JSON.stringify({ 
-              error: "Google API Quota Exceeded (15 requests/min limit). Please wait exactly 60 seconds and try again. If you generated a new API key, ensure you clicked 'Save' in the Settings menu!" 
-          }), { status: 429 });
-      }
-      
-      // Handle Invalid API Key errors gracefully
-      if (status === 400 || status === 403) {
-          return new Response(JSON.stringify({ 
-              error: "Your API Key is invalid or restricted. Please go to Settings and paste a fresh API key from Google AI Studio." 
-          }), { status: status });
-      }
+    let textResponse = response.text;
 
-      return new Response(JSON.stringify({ error: `Google API Error (${status}): ${errText}` }), { status: status });
-    }
-
-    const data = await res.json();
-    
-    if (!data.candidates || data.candidates.length === 0) {
-       return new Response(JSON.stringify({ error: "Google Gemini returned an empty response. The PDF might be unreadable." }), { status: 400 });
-    }
-
-    let textResponse = data.candidates[0].content.parts[0].text;
+    // Clean up markdown code blocks if the AI accidentally adds them
     textResponse = textResponse.replace(/```json/gi, '').replace(/```/gi, '').trim();
-
+    
     const generatedJson = JSON.parse(textResponse);
 
     return new Response(JSON.stringify(generatedJson), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
     console.error("AI Parse Error:", error);
-    return new Response(JSON.stringify({ error: error.message || 'Internal Server Error' }), { status: 500 });
+    
+    let errorMessage = error.message || "Unknown error occurred";
+    if (errorMessage.includes("429") || errorMessage.includes("Quota")) {
+      errorMessage = "Google API Quota Exceeded (15 requests/min limit). Please wait 60 seconds and try again.";
+    } else if (errorMessage.includes("API key not valid") || errorMessage.includes("403") || errorMessage.includes("API_KEY_INVALID")) {
+      errorMessage = "Your API Key is invalid or restricted. Please go to Settings and paste a fresh API key from Google AI Studio.";
+    }
+
+    return new Response(JSON.stringify({ error: errorMessage }), { status: 500 });
   }
 }
