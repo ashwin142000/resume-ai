@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 
-// THIS BYPASSES VERCEL'S 10-SECOND TIMEOUT LIMIT
 export const runtime = 'edge';
 
 export async function POST(req: Request) {
@@ -8,7 +7,7 @@ export async function POST(req: Request) {
     const { base64Pdf, userApiKey } = await req.json();
 
     if (!base64Pdf || !userApiKey) {
-      return NextResponse.json({ error: 'Missing PDF or API key' }, { status: 400 });
+      return new Response(JSON.stringify({ error: 'Missing PDF or API key' }), { status: 400 });
     }
 
     const promptText = `
@@ -54,21 +53,21 @@ export async function POST(req: Request) {
 
     if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`API Error ${res.status}: ${errText}`);
+        return new Response(JSON.stringify({ error: `Google Gemini API Error: ${errText}` }), { status: res.status });
     }
 
     const data = await res.json();
     let textResponse = data.candidates[0].content.parts[0].text;
 
-    // Remove markdown code block wrappers if Gemini includes them
+    // Clean up if Gemini accidentally includes markdown code block formatting
     textResponse = textResponse.replace(/```json/gi, '').replace(/```/gi, '').trim();
 
     const generatedJson = JSON.parse(textResponse);
 
-    return NextResponse.json(generatedJson);
+    return new Response(JSON.stringify(generatedJson), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
     console.error("AI Parse Error:", error);
-    return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });
+    return new Response(JSON.stringify({ error: error.message || 'Internal Server Error' }), { status: 500 });
   }
 }
