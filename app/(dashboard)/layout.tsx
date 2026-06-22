@@ -23,8 +23,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50">
       
-      {/* Mobile Header */}
-      <header className="md:hidden bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+      {/* ADDED print:hidden HERE */}
+      <header className="md:hidden bg-white border-b border-gray-200 p-4 flex items-center justify-between print:hidden">
         <h1 className="text-xl font-bold flex items-center gap-2">
           <FileText className="text-blue-600" /> ResumeAI
         </h1>
@@ -33,9 +33,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </button>
       </header>
 
-      {/* Mobile Dropdown Menu */}
+      {/* ADDED print:hidden HERE */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-white border-b border-gray-200 absolute w-full z-50">
+        <div className="md:hidden bg-white border-b border-gray-200 absolute w-full z-50 print:hidden">
           <nav className="flex flex-col p-4 space-y-2">
             {nav.map(i => {
               const Icon = i.icon;
@@ -54,7 +54,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       )}
 
-      {/* Desktop Sidebar */}
+      {/* Desktop Sidebar (Already had print:hidden) */}
       <aside className="w-64 bg-white border-r hidden md:flex flex-col print:hidden">
         <div className="p-6">
           <h1 className="text-2xl font-bold flex items-center gap-2"><FileText className="text-blue-600" /> ResumeAI</h1>
@@ -73,7 +73,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <button onClick={handleLogout} className="m-4 flex items-center gap-2 text-gray-500 hover:text-gray-900 p-2"><LogOut size={18}/> Logout</button>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 h-[calc(100vh-64px)] md:h-screen overflow-auto p-4 md:p-8 print:p-0 print:overflow-visible">
         {children}
       </main>
