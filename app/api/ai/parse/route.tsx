@@ -10,7 +10,7 @@ export async function POST(req: Request) {
       return new Response(JSON.stringify({ error: 'Missing PDF or API key' }), { status: 400 });
     }
 
-    // Clean API key just in case there are hidden spaces
+    // Clean API key to remove any accidental spaces copied from the browser
     const cleanApiKey = userApiKey.trim();
 
     const promptText = `
@@ -48,14 +48,14 @@ export async function POST(req: Request) {
       generationConfig: { responseMimeType: "application/json", responseSchema: schema }
     };
 
-    // Fallback Array: Try standard flash, then pro, then the newest 8b model
+    // Use only the most highly stable and available public models
     const modelsToTry = [
       'gemini-1.5-flash',
-      'gemini-1.5-pro',
-      'gemini-1.5-flash-8b'
+      'gemini-2.0-flash',
+      'gemini-1.5-pro'
     ];
 
-    let lastError = "";
+    let errorMessages: string[] = [];
     let data = null;
 
     for (const model of modelsToTry) {
@@ -67,21 +67,23 @@ export async function POST(req: Request) {
         });
 
         if (!res.ok) {
-          lastError = await res.text();
-          console.warn(`${model} failed: ${lastError}`);
-          continue; // Move to the next model in the array
+          const errText = await res.text();
+          // Save the exact error message for this specific model
+          errorMessages.push(`[${model}] failed: ${errText}`);
+          continue; 
         }
 
         data = await res.json();
         break; // Success! Exit the loop.
       } catch (e: any) {
-        lastError = e.message;
-        continue;
+        errorMessages.push(`[${model}] threw an exception: ${e.message}`);
       }
     }
 
+    // If ALL models failed, send ALL the errors back to the frontend
     if (!data) {
-      return new Response(JSON.stringify({ error: `All Google Gemini models failed. Last Error: ${lastError}` }), { status: 400 });
+      const combinedErrors = errorMessages.join(' \n\n ');
+      return new Response(JSON.stringify({ error: `All models failed. Here are the exact reasons:\n\n${combinedErrors}` }), { status: 400 });
     }
 
     let textResponse = data.candidates[0].content.parts[0].text;
