@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
 
 export const runtime = 'edge';
@@ -12,9 +11,6 @@ export async function POST(req: Request) {
     }
 
     const cleanApiKey = userApiKey.trim();
-    
-    // Initialize the new client
-    const ai = new GoogleGenAI({ apiKey: cleanApiKey });
 
     const promptText = `
       You are an expert ATS resume writer and recruiter. 
@@ -49,32 +45,36 @@ export async function POST(req: Request) {
       }
     };
 
-    // Calling the new model using the updated method structure
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: promptText,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: schema
-      }
+    const payload = {
+      contents: [{
+        parts: [{ text: promptText }]
+      }],
+      generationConfig: { responseMimeType: "application/json", responseSchema: schema }
+    };
+
+    // Call the new gemini-2.5-flash model via native fetch
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${cleanApiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
 
-    let textResponse = response.text;
+    if (!res.ok) {
+        const errText = await res.text();
+        return new Response(JSON.stringify({ error: `Google API Error: ${errText}` }), { status: res.status });
+    }
+
+    const data = await res.json();
+    let textResponse = data.candidates[0].content.parts[0].text;
     textResponse = textResponse.replace(/```json/gi, '').replace(/```/gi, '').trim();
+
     const generatedJson = JSON.parse(textResponse);
 
     return new Response(JSON.stringify(generatedJson), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
     console.error("AI Generation Error:", error);
-    
-    let errorMessage = error.message || "Unknown error occurred";
-    if (errorMessage.includes("429") || errorMessage.includes("Quota")) {
-      errorMessage = "Google API Quota Exceeded. Please wait 60 seconds and try again.";
-    } else if (errorMessage.includes("API key not valid") || errorMessage.includes("403") || errorMessage.includes("API_KEY_INVALID")) {
-      errorMessage = "Your API Key is invalid. Please update it in Settings.";
-    }
-
-    return new Response(JSON.stringify({ error: errorMessage }), { status: 500 });
+    return new Response(JSON.stringify({ error: error.message || 'Internal Server Error' }), { status: 500 });
   }
 }
+l
