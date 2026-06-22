@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 
+// THIS BYPASSES VERCEL'S 10-SECOND TIMEOUT LIMIT
+export const runtime = 'edge';
+
 export async function POST(req: Request) {
   try {
     const { base64Pdf, userApiKey } = await req.json();
@@ -14,21 +17,14 @@ export async function POST(req: Request) {
       Ensure the description bullets in experience and projects are separated into an array of strings.
     `;
 
-    // Strict JSON Schema for the output
     const schema = {
       type: "OBJECT",
       properties: {
         personalInfo: {
           type: "OBJECT",
           properties: {
-            fullName: { type: "STRING" },
-            role: { type: "STRING" },
-            email: { type: "STRING" },
-            phone: { type: "STRING" },
-            location: { type: "STRING" },
-            linkedin: { type: "STRING" },
-            github: { type: "STRING" },
-            portfolio: { type: "STRING" }
+            fullName: { type: "STRING" }, role: { type: "STRING" }, email: { type: "STRING" }, phone: { type: "STRING" },
+            location: { type: "STRING" }, linkedin: { type: "STRING" }, github: { type: "STRING" }, portfolio: { type: "STRING" }
           }
         },
         summary: { type: "STRING" },
@@ -50,17 +46,24 @@ export async function POST(req: Request) {
       generationConfig: { responseMimeType: "application/json", responseSchema: schema }
     };
 
-    // Note: Gemini 1.5 Flash natively supports processing raw PDF documents
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${userApiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
 
-    if (!res.ok) throw new Error(`Google API Error: ${res.status}`);
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`API Error ${res.status}: ${errText}`);
+    }
 
     const data = await res.json();
-    const generatedJson = JSON.parse(data.candidates[0].content.parts[0].text);
+    let textResponse = data.candidates[0].content.parts[0].text;
+
+    // Remove markdown code block wrappers if Gemini includes them
+    textResponse = textResponse.replace(/```json/gi, '').replace(/```/gi, '').trim();
+
+    const generatedJson = JSON.parse(textResponse);
 
     return NextResponse.json(generatedJson);
 
