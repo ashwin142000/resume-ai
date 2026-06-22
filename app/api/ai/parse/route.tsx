@@ -10,7 +10,6 @@ export async function POST(req: Request) {
       return new Response(JSON.stringify({ error: 'Missing PDF or API key' }), { status: 400 });
     }
 
-    // Clean API key to remove any accidental spaces copied from the browser
     const cleanApiKey = userApiKey.trim();
 
     const promptText = `
@@ -48,11 +47,11 @@ export async function POST(req: Request) {
       generationConfig: { responseMimeType: "application/json", responseSchema: schema }
     };
 
-    // Use only the most highly stable and available public models
+    // FIX: Using exact versioned tags of 1.5 to bypass the 404s, and removing 2.0 to bypass the Quota 0 limit.
     const modelsToTry = [
-      'gemini-1.5-flash',
-      'gemini-2.0-flash',
-      'gemini-1.5-pro'
+      'gemini-1.5-flash-latest',
+      'gemini-1.5-flash-002',
+      'gemini-1.5-flash-001'
     ];
 
     let errorMessages: string[] = [];
@@ -68,7 +67,6 @@ export async function POST(req: Request) {
 
         if (!res.ok) {
           const errText = await res.text();
-          // Save the exact error message for this specific model
           errorMessages.push(`[${model}] failed: ${errText}`);
           continue; 
         }
@@ -80,7 +78,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // If ALL models failed, send ALL the errors back to the frontend
     if (!data) {
       const combinedErrors = errorMessages.join(' \n\n ');
       return new Response(JSON.stringify({ error: `All models failed. Here are the exact reasons:\n\n${combinedErrors}` }), { status: 400 });
