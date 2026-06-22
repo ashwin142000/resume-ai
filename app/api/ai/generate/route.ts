@@ -12,17 +12,20 @@ export async function POST(req: Request) {
 
     const cleanApiKey = userApiKey.trim();
 
+    // UPDATED PROMPT: Forcing it to be short, crisp, and 1-page
     const promptText = `
       You are an expert ATS resume writer and recruiter. 
       You are given a Master Resume in JSON format and a Job Description.
       Your task is to tailor the Master Resume to perfectly match the Job Description.
 
-      STRICT RULES:
-      1. NEVER invent experience, fake jobs, fake projects, or fake certifications.
-      2. Only highlight, reorder, and improve the wording of existing content to match the JD keywords.
-      3. Optimize the professional summary for this specific role.
-      4. Extract missing keywords from the JD that the candidate lacks.
-      5. Return strictly valid JSON.
+      STRICT RULES FOR BREVITY & IMPACT:
+      1. The final resume MUST fit on a single page. Keep everything short, crisp, and highly impactful.
+      2. Professional Summary: Maximum 3 concise sentences.
+      3. Experience: Limit to the top 3-4 most critical achievements per role. Delete unnecessary fluff.
+      4. Projects: Limit to the top 2 most relevant projects.
+      5. NEVER invent experience, fake jobs, fake projects, or fake certifications.
+      6. Extract missing keywords from the JD that the candidate lacks.
+      7. Return strictly valid JSON.
 
       Job Description: ${jobDescription}
       Target Role: ${targetRole}
@@ -33,13 +36,14 @@ export async function POST(req: Request) {
       type: "OBJECT",
       properties: {
         personalInfo: { 
-          type: "OBJECT", properties: { fullName: { type: "STRING" }, email: { type: "STRING" }, phone: { type: "STRING" }, location: { type: "STRING" }, linkedin: { type: "STRING" }, portfolio: { type: "STRING" } } 
+          type: "OBJECT", properties: { fullName: { type: "STRING" }, email: { type: "STRING" }, phone: { type: "STRING" }, location: { type: "STRING" }, linkedin: { type: "STRING" }, portfolio: { type: "STRING" }, github: { type: "STRING" } } 
         },
         summary: { type: "STRING" },
         skills: { type: "ARRAY", items: { type: "STRING" } },
         experience: { type: "ARRAY", items: { type: "OBJECT", properties: { title: { type: "STRING" }, company: { type: "STRING" }, date: { type: "STRING" }, description: { type: "ARRAY", items: { type: "STRING" } } } } },
         projects: { type: "ARRAY", items: { type: "OBJECT", properties: { name: { type: "STRING" }, description: { type: "ARRAY", items: { type: "STRING" } }, technologies: { type: "STRING" } } } },
         education: { type: "ARRAY", items: { type: "OBJECT", properties: { degree: { type: "STRING" }, institution: { type: "STRING" }, date: { type: "STRING" } } } },
+        certifications: { type: "ARRAY", items: { type: "STRING" } },
         atsScore: { type: "INTEGER" },
         missingKeywords: { type: "ARRAY", items: { type: "STRING" } }
       }
@@ -52,7 +56,7 @@ export async function POST(req: Request) {
       generationConfig: { responseMimeType: "application/json", responseSchema: schema }
     };
 
-    // Call the new gemini-2.5-flash model via native fetch
+    // Call the new gemini-2.5-flash model via native fetch (Zero dependencies!)
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${cleanApiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
