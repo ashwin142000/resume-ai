@@ -10,6 +10,9 @@ export async function POST(req: Request) {
       return new Response(JSON.stringify({ error: 'Missing PDF or API key' }), { status: 400 });
     }
 
+    // Clean API key just in case there are hidden spaces
+    const cleanApiKey = userApiKey.trim();
+
     const promptText = `
       You are an expert ATS resume parser. Extract the information from this PDF resume and format it strictly as JSON.
       Do not invent any information. If a field is not found in the resume, leave it empty.
@@ -45,22 +48,45 @@ export async function POST(req: Request) {
       generationConfig: { responseMimeType: "application/json", responseSchema: schema }
     };
 
-    // FIX: Appended "-latest" to the model name to resolve the 404 NOT FOUND error
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${userApiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    // Fallback Array: Try standard flash, then pro, then the newest 8b model
+    const modelsToTry = [
+      'gemini-1.5-flash',
+      'gemini-1.5-pro',
+      'gemini-1.5-flash-8b'
+    ];
 
-    if (!res.ok) {
-        const errText = await res.text();
-        return new Response(JSON.stringify({ error: `Google Gemini API Error: ${errText}` }), { status: res.status });
+    let lastError = "";
+    let data = null;
+
+    for (const model of modelsToTry) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanApiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          lastError = await res.text();
+          console.warn(`${model} failed: ${lastError}`);
+          continue; // Move to the next model in the array
+        }
+
+        data = await res.json();
+        break; // Success! Exit the loop.
+      } catch (e: any) {
+        lastError = e.message;
+        continue;
+      }
     }
 
-    const data = await res.json();
+    if (!data) {
+      return new Response(JSON.stringify({ error: `All Google Gemini models failed. Last Error: ${lastError}` }), { status: 400 });
+    }
+
     let textResponse = data.candidates[0].content.parts[0].text;
 
-    // Clean up if Gemini accidentally includes markdown code block formatting
+    // Clean up markdown formatting if Gemini includes it
     textResponse = textResponse.replace(/```json/gi, '').replace(/```/gi, '').trim();
 
     const generatedJson = JSON.parse(textResponse);
