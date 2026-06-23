@@ -12,119 +12,64 @@ export async function POST(req: Request) {
 
     const cleanApiKey = userApiKey.trim();
 
-    // STEP 1: Auto-Discovery (Just like the Master Resume parser!)
-    // Ask Google what models this specific API key is allowed to use
-    const modelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${cleanApiKey}`);
-    if (!modelsRes.ok) {
-       const errText = await modelsRes.text();
-       return new Response(JSON.stringify({ error: `API Key rejected by Google: ${errText}` }), { status: modelsRes.status });
-    }
-    
-    const modelsData = await modelsRes.json();
-    const availableModels = modelsData.models || [];
-    
-    // Filter for models that support text generation (1.5 or 2.0)
-    let validModels = availableModels
-        .filter((m: any) => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
-        .map((m: any) => m.name.replace('models/', ''))
-        .filter((name: string) => name.includes('1.5') || name.includes('2.0'));
-
-    // Sort to prioritize the most stable flash models first
-    validModels.sort((a: string, b: string) => {
-        const score = (name: string) => {
-            if (name === 'gemini-1.5-flash') return 10;
-            if (name === 'gemini-2.0-flash') return 9;
-            if (name.includes('gemini-1.5-flash')) return 8; 
-            if (name.includes('gemini-1.5-pro')) return 7;
-            return 0;
-        };
-        return score(b) - score(a);
-    });
-
-    if (validModels.length === 0) {
-        return new Response(JSON.stringify({ 
-            error: `Your API key does not have access to any Gemini 1.5 or 2.0 models.` 
-        }), { status: 400 });
-    }
-
     const promptText = `
       You are an expert ATS resume writer and recruiter. 
       You are given a Master Resume in JSON format and a Job Description.
       Your task is to tailor the Master Resume to perfectly match the Job Description.
 
-      STRICT RULES FOR BREVITY & IMPACT:
+      STRICT RULES:
       1. The final resume MUST fit on a single page. Keep everything short, crisp, and highly impactful.
-      2. Professional Summary: Maximum 3 concise sentences.
-      3. Experience: Limit to the top 3-4 most critical achievements per role. Delete unnecessary fluff.
-      4. Projects: Limit to the top 2 most relevant projects.
-      5. NEVER invent experience, fake jobs, fake projects, or fake certifications.
-      6. Extract missing keywords from the JD that the candidate lacks.
-      7. Return strictly valid JSON.
+      2. Experience: Limit to the top 3-4 most critical achievements per role. Delete unnecessary fluff.
+      3. Projects: Limit to the top 2 most relevant projects.
+      4. Extract missing keywords from the JD that the candidate lacks.
+      5. You MUST output ONLY a valid JSON object matching the schema below. No markdown wrappers.
+
+      EXPECTED JSON SCHEMA:
+      {
+        "personalInfo": { "fullName": "", "email": "", "phone": "", "location": "", "linkedin": "", "portfolio": "", "github": "" },
+        "summary": "",
+        "skills": [""],
+        "experience": [{ "title": "", "company": "", "date": "", "description": [""] }],
+        "projects": [{ "name": "", "description": [""], "technologies": "" }],
+        "education": [{ "degree": "", "institution": "", "date": "" }],
+        "certifications": [""],
+        "atsScore": 85,
+        "missingKeywords": [""]
+      }
 
       Job Description: ${jobDescription}
       Target Role: ${targetRole}
       Master Resume: ${JSON.stringify(masterResume)}
     `;
 
-    const schema = {
-      type: "OBJECT",
-      properties: {
-        personalInfo: { 
-          type: "OBJECT", properties: { fullName: { type: "STRING" }, email: { type: "STRING" }, phone: { type: "STRING" }, location: { type: "STRING" }, linkedin: { type: "STRING" }, portfolio: { type: "STRING" }, github: { type: "STRING" } } 
-        },
-        summary: { type: "STRING" },
-        skills: { type: "ARRAY", items: { type: "STRING" } },
-        experience: { type: "ARRAY", items: { type: "OBJECT", properties: { title: { type: "STRING" }, company: { type: "STRING" }, date: { type: "STRING" }, description: { type: "ARRAY", items: { type: "STRING" } } } } },
-        projects: { type: "ARRAY", items: { type: "OBJECT", properties: { name: { type: "STRING" }, description: { type: "ARRAY", items: { type: "STRING" } }, technologies: { type: "STRING" } } } },
-        education: { type: "ARRAY", items: { type: "OBJECT", properties: { degree: { type: "STRING" }, institution: { type: "STRING" }, date: { type: "STRING" } } } },
-        certifications: { type: "ARRAY", items: { type: "STRING" } },
-        atsScore: { type: "INTEGER" },
-        missingKeywords: { type: "ARRAY", items: { type: "STRING" } }
-      }
-    };
+    // Call Groq API using native fetch (OpenAI compatible endpoint)
+    const res = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cleanApiKey}`
+      },
+      body: JSON.stringify({
+          model: "llama3-70b-8192", // Fast, highly capable reasoning model
+          messages: [
+              { role: "system", content: "You are a JSON-generating machine. Only output valid JSON." },
+              { role: "user", content: promptText }
+          ],
+          response_format: { type: "json_object" } // Forces JSON output
+      })
+    });
 
-    const payload = {
-      contents: [{
-        parts: [{ text: promptText }]
-      }],
-      generationConfig: { responseMimeType: "application/json", responseSchema: schema }
-    };
-
-    let data = null;
-    let errorMessages: string[] = [];
-
-    // STEP 2: Try the top 3 available models your key has access to
-    const modelsToTry = validModels.slice(0, 3);
-
-    for (const model of modelsToTry) {
-      try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanApiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          errorMessages.push(`[${model}] failed: ${errText}`);
-          continue; 
-        }
-
-        data = await res.json();
-        break; // Success! Exit the loop.
-      } catch (e: any) {
-        errorMessages.push(`[${model}] threw an exception: ${e.message}`);
-      }
+    if (!res.ok) {
+        const errText = await res.text();
+        if (res.status === 429) return new Response(JSON.stringify({ error: "Groq API Rate Limit Exceeded. Please try again in a moment." }), { status: 429 });
+        if (res.status === 401) return new Response(JSON.stringify({ error: "Invalid Groq API Key. Please update it in Settings." }), { status: 401 });
+        return new Response(JSON.stringify({ error: `API Error: ${errText}` }), { status: res.status });
     }
 
-    if (!data) {
-      const combinedErrors = errorMessages.join(' \n\n ');
-      return new Response(JSON.stringify({ 
-          error: `All allowed models failed. \n\nModels attempted: ${modelsToTry.join(', ')}\n\nErrors:\n${combinedErrors}` 
-      }), { status: 400 });
-    }
-
-    let textResponse = data.candidates[0].content.parts[0].text;
+    const data = await res.json();
+    let textResponse = data.choices[0].message.content;
+    
+    // Clean up just in case
     textResponse = textResponse.replace(/```json/gi, '').replace(/```/gi, '').trim();
 
     const generatedJson = JSON.parse(textResponse);
