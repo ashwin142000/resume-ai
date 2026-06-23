@@ -30,8 +30,9 @@ export default function Tailor() {
 
     try {
       const settings = await getDoc(doc(db, "users", user!.uid, "settings", "config"));
-      const key = settings.data()?.customApiKey;
-      if (!key) throw new Error("Please add your Gemini API Key in the Settings page.");
+      // FIX: Fetch specifically the Groq API Key
+      const key = settings.data()?.groqApiKey;
+      if (!key) throw new Error("Please add your Groq API Key in the Settings page.");
 
       const master = masters.find(m => m.id === selected)?.data;
       
@@ -43,7 +44,6 @@ export default function Tailor() {
       
       const data = await res.json();
       
-      // FIX: Check if the response actually failed before saving!
       if (!res.ok) {
         throw new Error(data.error || "Failed to generate resume from AI.");
       }
@@ -67,7 +67,7 @@ export default function Tailor() {
     <div className="space-y-6 max-w-2xl mx-auto">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Tailor Resume</h1>
-        <p className="text-gray-500 text-sm mt-1">Generate a highly targeted resume based on a job description.</p>
+        <p className="text-gray-500 text-sm mt-1">Generate a highly targeted resume based on a job description using Groq Llama 3.</p>
       </div>
       
       <div className="bg-white p-6 rounded-xl border shadow-sm space-y-5">
@@ -96,7 +96,7 @@ export default function Tailor() {
         </div>
 
         <button onClick={generate} disabled={loading || !selected || !jd || !role} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-md font-medium flex justify-center items-center gap-2 disabled:opacity-50 transition">
-          {loading ? <><Loader2 className="animate-spin" size={18}/> Tailoring with AI...</> : <><Wand2 size={18}/> Generate Tailored Resume</>}
+          {loading ? <><Loader2 className="animate-spin" size={18}/> Tailoring with Groq AI...</> : <><Wand2 size={18}/> Generate Tailored Resume</>}
         </button>
       </div>
     </div>
