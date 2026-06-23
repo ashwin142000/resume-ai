@@ -50,7 +50,8 @@ export async function POST(req: Request) {
           'Authorization': `Bearer ${cleanApiKey}`
       },
       body: JSON.stringify({
-          model: "llama3-70b-8192", // Fast, highly capable reasoning model
+          // FIX: Updated to the newest, active Llama 3.3 model on Groq
+          model: "llama-3.3-70b-versatile", 
           messages: [
               { role: "system", content: "You are a JSON-generating machine. Only output valid JSON." },
               { role: "user", content: promptText }
