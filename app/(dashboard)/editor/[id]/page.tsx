@@ -9,7 +9,7 @@ export default function Editor({ params }: { params: { id: string } }) {
   const { user } = useAuth();
   const [data, setData] = useState<any>(null);
   const [saving, setSaving] = useState(false);
-  const [view, setView] = useState<'edit' | 'preview'>('preview'); // For mobile tabs
+  const [view, setView] = useState<'edit' | 'preview'>('preview');
 
   useEffect(() => {
     if (user && params.id) {
@@ -38,6 +38,19 @@ export default function Editor({ params }: { params: { id: string } }) {
   return (
     <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-100px)] print:block print:h-auto print:p-0">
       
+      {/* --- CSS to override the Browser's massive default print margins --- */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          @page {
+            size: A4 portrait;
+            margin: 10mm !important; /* Forces a tight 1cm margin instead of 1 inch */
+          }
+          body {
+            -webkit-print-color-adjust: exact;
+          }
+        }
+      `}} />
+
       {/* Mobile View Toggle Tabs (Hidden on Desktop & Print) */}
       <div className="flex md:hidden bg-white rounded-lg shadow-sm p-1 print:hidden">
         <button onClick={() => setView('edit')} className={`flex-1 py-2 text-sm font-medium rounded-md flex items-center justify-center gap-2 ${view === 'edit' ? 'bg-blue-100 text-blue-700' : 'text-gray-600'}`}>
@@ -58,7 +71,6 @@ export default function Editor({ params }: { params: { id: string } }) {
         </div>
         
         <div className="p-5 overflow-y-auto flex-1 space-y-8">
-          {/* Missing Keywords Warning */}
           {data.missingKeywords?.length > 0 && (
             <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg">
               <h4 className="text-xs font-bold text-orange-800 uppercase mb-2">Missing JD Keywords:</h4>
@@ -68,7 +80,6 @@ export default function Editor({ params }: { params: { id: string } }) {
             </div>
           )}
 
-          {/* Edit Forms */}
           <section>
             <h3 className="text-xs font-bold uppercase text-gray-500 mb-2">Summary</h3>
             <textarea rows={4} className="w-full border rounded-md p-2.5 text-sm bg-gray-50 focus:bg-white" value={data.summary || ""} onChange={e => updateField('summary', e.target.value)} />
@@ -87,7 +98,8 @@ export default function Editor({ params }: { params: { id: string } }) {
                   <button onClick={() => { const n = [...data.experience]; n.splice(i, 1); updateField('experience', n); }} className="absolute top-2 right-2 text-red-500"><Trash2 size={14}/></button>
                   <input type="text" className="w-full border rounded p-2 text-sm mb-2" value={exp.title} onChange={e => {const n=[...data.experience]; n[i].title = e.target.value; updateField('experience', n);}} placeholder="Job Title" />
                   <input type="text" className="w-full border rounded p-2 text-sm mb-2" value={exp.company} onChange={e => {const n=[...data.experience]; n[i].company = e.target.value; updateField('experience', n);}} placeholder="Company" />
-                  <textarea rows={4} className="w-full border rounded p-2 text-sm" value={exp.description?.join('\n') || ""} onChange={e => {const n=[...data.experience]; n[i].description = e.target.value.split('\n'); updateField('experience', n);}} placeholder="Bullets (One per line)" />
+                  <input type="text" className="w-full border rounded p-2 text-sm mb-2" value={exp.date} onChange={e => {const n=[...data.experience]; n[i].date = e.target.value; updateField('experience', n);}} placeholder="Dates" />
+                  <textarea rows={6} className="w-full border rounded p-2 text-sm" value={exp.description?.join('\n') || ""} onChange={e => {const n=[...data.experience]; n[i].description = e.target.value.split('\n'); updateField('experience', n);}} placeholder="Bullets (One per line)" />
                 </div>
               ))}
             </div>
@@ -100,12 +112,30 @@ export default function Editor({ params }: { params: { id: string } }) {
                 <div key={i} className="p-3 border rounded-lg relative bg-gray-50">
                   <button onClick={() => { const n = [...data.projects]; n.splice(i, 1); updateField('projects', n); }} className="absolute top-2 right-2 text-red-500"><Trash2 size={14}/></button>
                   <input type="text" className="w-full border rounded p-2 text-sm mb-2" value={proj.name} onChange={e => {const n=[...data.projects]; n[i].name = e.target.value; updateField('projects', n);}} placeholder="Project Name" />
-                  <textarea rows={3} className="w-full border rounded p-2 text-sm" value={proj.description?.join('\n') || ""} onChange={e => {const n=[...data.projects]; n[i].description = e.target.value.split('\n'); updateField('projects', n);}} placeholder="Bullets (One per line)" />
+                  <textarea rows={4} className="w-full border rounded p-2 text-sm" value={proj.description?.join('\n') || ""} onChange={e => {const n=[...data.projects]; n[i].description = e.target.value.split('\n'); updateField('projects', n);}} placeholder="Bullets (One per line)" />
                 </div>
               ))}
             </div>
           </section>
-          
+
+          <section>
+            <h3 className="text-xs font-bold uppercase text-gray-500 mb-2">Education</h3>
+            <div className="space-y-4">
+              {(data.education || []).map((edu: any, i: number) => (
+                <div key={i} className="p-3 border rounded-lg relative bg-gray-50">
+                  <button onClick={() => { const n = [...data.education]; n.splice(i, 1); updateField('education', n); }} className="absolute top-2 right-2 text-red-500"><Trash2 size={14}/></button>
+                  <input type="text" className="w-full border rounded p-2 text-sm mb-2" value={edu.degree} onChange={e => {const n=[...data.education]; n[i].degree = e.target.value; updateField('education', n);}} placeholder="Degree" />
+                  <input type="text" className="w-full border rounded p-2 text-sm mb-2" value={edu.institution} onChange={e => {const n=[...data.education]; n[i].institution = e.target.value; updateField('education', n);}} placeholder="Institution" />
+                  <input type="text" className="w-full border rounded p-2 text-sm mb-2" value={edu.date} onChange={e => {const n=[...data.education]; n[i].date = e.target.value; updateField('education', n);}} placeholder="Date" />
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-xs font-bold uppercase text-gray-500 mb-2">Certifications</h3>
+            <textarea rows={3} className="w-full border rounded-md p-2 text-sm bg-gray-50 focus:bg-white" value={data.certifications?.join("\n") || ""} onChange={e => updateField('certifications', e.target.value.split('\n').filter(Boolean))} placeholder="One per line" />
+          </section>
         </div>
       </div>
 
@@ -121,13 +151,13 @@ export default function Editor({ params }: { params: { id: string } }) {
           </button>
         </div>
 
-        {/* Printable Area - Centered and Scrolled on Desktop */}
+        {/* Printable Area - Tightened margins and typography */}
         <div className="flex-1 overflow-y-auto bg-gray-100 rounded-xl flex justify-center print:bg-white print:p-0 print:overflow-visible">
-          <div className="bg-white p-[10mm] w-full max-w-[210mm] min-h-[297mm] shadow-md print:shadow-none print:m-0 print:p-[5mm] print:max-w-none text-gray-900 font-sans leading-snug my-4 md:my-0">
+          <div className="bg-white p-[15mm] w-full max-w-[210mm] min-h-[297mm] shadow-md print:shadow-none print:m-0 print:p-0 print:max-w-none text-gray-900 font-sans leading-tight my-4 md:my-0">
             
-            <header className="text-center border-b-2 border-gray-900 pb-2 mb-3">
-              <h1 className="text-2xl font-bold uppercase tracking-wider">{data.personalInfo?.fullName}</h1>
-              {data.personalInfo?.role && <p className="text-sm font-semibold text-gray-700 mt-0.5">{data.personalInfo.role}</p>}
+            <header className="text-center border-b-[1.5px] border-gray-900 pb-1.5 mb-2.5">
+              <h1 className="text-xl font-bold uppercase tracking-wider">{data.personalInfo?.fullName}</h1>
+              {data.personalInfo?.role && <p className="text-[12px] font-semibold text-gray-700 mt-0.5">{data.personalInfo.role}</p>}
               <div className="text-[10px] flex flex-wrap justify-center gap-x-2 gap-y-1 text-gray-600 mt-1">
                 {data.personalInfo?.email && <span>{data.personalInfo.email}</span>}
                 {data.personalInfo?.phone && <span>| {data.personalInfo.phone}</span>}
@@ -138,31 +168,31 @@ export default function Editor({ params }: { params: { id: string } }) {
             </header>
             
             {data.summary && (
-              <section className="mb-3">
-                <h2 className="text-sm font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Professional Summary</h2>
-                <p className="text-[11px] text-justify">{data.summary}</p>
+              <section className="mb-2.5">
+                <h2 className="text-[12px] font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Professional Summary</h2>
+                <p className="text-[10.5px] text-justify leading-snug">{data.summary}</p>
               </section>
             )}
 
             {data.skills?.length > 0 && (
-              <section className="mb-3">
-                <h2 className="text-sm font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Skills</h2>
-                <p className="text-[11px] leading-relaxed">{data.skills.join(' • ')}</p>
+              <section className="mb-2.5">
+                <h2 className="text-[12px] font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Skills</h2>
+                <p className="text-[10.5px] leading-snug">{data.skills.join(' • ')}</p>
               </section>
             )}
 
             {data.experience?.length > 0 && (
-              <section className="mb-3">
-                <h2 className="text-sm font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Experience</h2>
+              <section className="mb-2.5">
+                <h2 className="text-[12px] font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Experience</h2>
                 {data.experience.map((exp: any, i: number) => (
-                  <div key={i} className="mb-2">
-                    <div className="flex justify-between font-bold text-[12px] text-gray-900">
+                  <div key={i} className="mb-1.5">
+                    <div className="flex justify-between font-bold text-[11px] text-gray-900">
                       <span>{exp.title}</span>
                       <span>{exp.date}</span>
                     </div>
-                    <div className="text-[11px] italic mb-0.5 text-gray-700">{exp.company}</div>
-                    <ul className="list-disc list-outside ml-4 text-[11px] space-y-0.5">
-                      {exp.description?.map((d: string, j: number) => d.trim() && <li key={j} className="pl-1">{d}</li>)}
+                    <div className="text-[10.5px] italic mb-0.5 text-gray-700">{exp.company}</div>
+                    <ul className="list-disc list-outside ml-3.5 text-[10.5px] space-y-0.5">
+                      {exp.description?.map((d: string, j: number) => d.trim() && <li key={j} className="pl-1 leading-snug">{d}</li>)}
                     </ul>
                   </div>
                 ))}
@@ -170,13 +200,13 @@ export default function Editor({ params }: { params: { id: string } }) {
             )}
 
             {data.projects?.length > 0 && (
-              <section className="mb-3">
-                <h2 className="text-sm font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Projects</h2>
+              <section className="mb-2.5">
+                <h2 className="text-[12px] font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Projects</h2>
                 {data.projects.map((proj: any, i: number) => (
-                  <div key={i} className="mb-2">
-                    <div className="font-bold text-[12px] text-gray-900">{proj.name}</div>
-                    <ul className="list-disc list-outside ml-4 text-[11px] space-y-0.5 mt-0.5">
-                      {proj.description?.map((d: string, j: number) => d.trim() && <li key={j} className="pl-1">{d}</li>)}
+                  <div key={i} className="mb-1.5">
+                    <div className="font-bold text-[11px] text-gray-900">{proj.name}</div>
+                    <ul className="list-disc list-outside ml-3.5 text-[10.5px] space-y-0.5 mt-0.5">
+                      {proj.description?.map((d: string, j: number) => d.trim() && <li key={j} className="pl-1 leading-snug">{d}</li>)}
                     </ul>
                   </div>
                 ))}
@@ -184,10 +214,10 @@ export default function Editor({ params }: { params: { id: string } }) {
             )}
 
             {data.education?.length > 0 && (
-              <section className="mb-3">
-                <h2 className="text-sm font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Education</h2>
+              <section className="mb-2.5">
+                <h2 className="text-[12px] font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Education</h2>
                 {data.education.map((edu: any, i: number) => (
-                  <div key={i} className="flex justify-between text-[11px] mb-0.5">
+                  <div key={i} className="flex justify-between text-[10.5px] mb-0.5">
                     <div><span className="font-bold text-gray-900">{edu.institution}</span> — {edu.degree}</div>
                     <div className="italic text-gray-600">{edu.date}</div>
                   </div>
@@ -196,10 +226,10 @@ export default function Editor({ params }: { params: { id: string } }) {
             )}
 
             {data.certifications?.length > 0 && (
-              <section className="mb-3">
-                <h2 className="text-sm font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Certifications</h2>
-                <ul className="list-disc list-outside ml-4 text-[11px] space-y-0.5">
-                  {data.certifications.map((cert: string, i: number) => cert.trim() && <li key={i} className="pl-1">{cert}</li>)}
+              <section className="mb-2">
+                <h2 className="text-[12px] font-bold uppercase border-b border-gray-300 mb-1 text-gray-800">Certifications</h2>
+                <ul className="list-disc list-outside ml-3.5 text-[10.5px] space-y-0.5">
+                  {data.certifications.map((cert: string, i: number) => cert.trim() && <li key={i} className="pl-1 leading-snug">{cert}</li>)}
                 </ul>
               </section>
             )}
