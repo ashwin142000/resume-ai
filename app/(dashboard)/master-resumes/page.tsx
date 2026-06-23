@@ -62,10 +62,8 @@ export default function MasterResumes() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Reset input so you can upload the same file again if it fails
     if (fileInputRef.current) fileInputRef.current.value = "";
 
-    // 1. Check File Size (Max 3MB to prevent Vercel 413 Payload Too Large error)
     if (file.size > 3 * 1024 * 1024) {
       alert("File is too large! Please ensure your PDF is smaller than 3MB.");
       return;
@@ -74,8 +72,9 @@ export default function MasterResumes() {
     setParsing(true);
     try {
       const settingsDoc = await getDoc(doc(db, "users", user!.uid, "settings", "config"));
-      const apiKey = settingsDoc.data()?.customApiKey;
-      if (!apiKey) throw new Error("Missing AI API Key! Please go to the Settings page and enter your Gemini API Key.");
+      // FIX: Fetch specifically the Gemini API Key
+      const apiKey = settingsDoc.data()?.geminiApiKey || settingsDoc.data()?.customApiKey;
+      if (!apiKey) throw new Error("Missing Gemini API Key! Please go to the Settings page to add it.");
 
       const reader = new FileReader();
       reader.readAsDataURL(file);
@@ -89,14 +88,13 @@ export default function MasterResumes() {
             body: JSON.stringify({ base64Pdf: base64, userApiKey: apiKey })
           });
 
-          // 2. Properly extract the REAL error message without masking it
           if (!res.ok) {
              let errorMsg = `Server Error (${res.status})`;
              try {
                const errJson = await res.json();
                errorMsg = errJson.error || errorMsg;
              } catch {
-               errorMsg = `Server Error (${res.status}): Vercel timeout or payload limits exceeded.`;
+               errorMsg = `Server Error (${res.status}): Timeout or limits exceeded.`;
              }
              throw new Error(errorMsg);
           }
@@ -105,7 +103,7 @@ export default function MasterResumes() {
           setData(parsedData);
           if(!title) setTitle(`${parsedData.personalInfo?.fullName || 'My'} Resume`);
           
-          alert("Resume parsed successfully! Please review the fields.");
+          alert("Resume parsed successfully!");
         } catch (innerErr: any) {
           alert(`Parsing Failed: ${innerErr.message}`);
         } finally {
@@ -154,12 +152,11 @@ export default function MasterResumes() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 pb-20">
-      
       <div className="flex items-center gap-3 bg-white p-4 border rounded-xl shadow-sm sticky top-0 z-10">
         <button onClick={() => setActiveId(null)} className="p-2 bg-gray-100 rounded-md text-gray-600"><ChevronLeft size={20}/></button>
         <input 
           value={title} onChange={(e) => setTitle(e.target.value)} 
-          placeholder="Resume Title (e.g., Senior Dev Master)" 
+          placeholder="Resume Title" 
           className="flex-1 text-lg font-bold border-none focus:ring-0 p-0 bg-transparent"
         />
         <button onClick={handleSave} disabled={saving} className="bg-blue-600 text-white px-4 py-2 rounded-md flex items-center gap-2 text-sm font-medium disabled:opacity-50">
@@ -169,8 +166,8 @@ export default function MasterResumes() {
 
       <div className="bg-blue-50 border border-blue-200 p-5 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h3 className="font-bold text-blue-900">Autofill with AI</h3>
-          <p className="text-sm text-blue-700">Upload your existing PDF resume and AI will fill out all the fields below automatically.</p>
+          <h3 className="font-bold text-blue-900">Autofill with Gemini AI</h3>
+          <p className="text-sm text-blue-700">Upload your PDF resume and AI will fill out the fields automatically.</p>
         </div>
         <input type="file" accept="application/pdf" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
         <button onClick={() => fileInputRef.current?.click()} disabled={parsing} className="whitespace-nowrap bg-white border border-blue-300 text-blue-700 px-4 py-2 rounded-md flex items-center gap-2 text-sm font-bold shadow-sm hover:bg-blue-100 transition disabled:opacity-50">
@@ -184,7 +181,7 @@ export default function MasterResumes() {
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3 border-b pb-2">Personal Info</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div><label className="block text-xs font-medium text-gray-700 mb-1">Full Name</label><input type="text" className="w-full border rounded-md p-2 text-sm" value={data.personalInfo?.fullName || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, fullName: e.target.value})} /></div>
-            <div><label className="block text-xs font-medium text-gray-700 mb-1">Target Role / Headline</label><input type="text" placeholder="e.g. FullStack Developer" className="w-full border rounded-md p-2 text-sm" value={data.personalInfo?.role || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, role: e.target.value})} /></div>
+            <div><label className="block text-xs font-medium text-gray-700 mb-1">Target Role / Headline</label><input type="text" className="w-full border rounded-md p-2 text-sm" value={data.personalInfo?.role || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, role: e.target.value})} /></div>
             <div><label className="block text-xs font-medium text-gray-700 mb-1">Email</label><input type="text" className="w-full border rounded-md p-2 text-sm" value={data.personalInfo?.email || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, email: e.target.value})} /></div>
             <div><label className="block text-xs font-medium text-gray-700 mb-1">Phone</label><input type="text" className="w-full border rounded-md p-2 text-sm" value={data.personalInfo?.phone || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, phone: e.target.value})} /></div>
             <div><label className="block text-xs font-medium text-gray-700 mb-1">Location</label><input type="text" className="w-full border rounded-md p-2 text-sm" value={data.personalInfo?.location || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, location: e.target.value})} /></div>
@@ -200,8 +197,7 @@ export default function MasterResumes() {
 
         <section>
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3 border-b pb-2">Skills</h2>
-          <textarea rows={2} placeholder="React, Node.js, Typescript..." className="w-full border rounded-md p-2 text-sm" value={data.skills?.join(", ") || ""} onChange={e => updateField('skills', e.target.value.split(',').map(s=>s.trim()))} />
-          <p className="text-xs text-gray-500 mt-1">Separate skills with commas</p>
+          <textarea rows={2} className="w-full border rounded-md p-2 text-sm" value={data.skills?.join(", ") || ""} onChange={e => updateField('skills', e.target.value.split(',').map((s: string)=>s.trim()))} />
         </section>
 
         <section>
@@ -214,7 +210,7 @@ export default function MasterResumes() {
                   <div><label className="block text-xs mb-1">Job Title</label><input type="text" className="w-full border rounded p-2 text-sm bg-white" value={exp.title} onChange={e => {const n=[...data.experience]; n[i].title = e.target.value; updateField('experience', n);}} /></div>
                   <div><label className="block text-xs mb-1">Company</label><input type="text" className="w-full border rounded p-2 text-sm bg-white" value={exp.company} onChange={e => {const n=[...data.experience]; n[i].company = e.target.value; updateField('experience', n);}} /></div>
                 </div>
-                <div className="mb-3"><label className="block text-xs mb-1">Dates (e.g., Jan 2022 - Dec 2025)</label><input type="text" className="w-full border rounded p-2 text-sm bg-white" value={exp.date} onChange={e => {const n=[...data.experience]; n[i].date = e.target.value; updateField('experience', n);}} /></div>
+                <div className="mb-3"><label className="block text-xs mb-1">Dates</label><input type="text" className="w-full border rounded p-2 text-sm bg-white" value={exp.date} onChange={e => {const n=[...data.experience]; n[i].date = e.target.value; updateField('experience', n);}} /></div>
                 <div>
                   <label className="block text-xs mb-1">Description Bullets (One per line)</label>
                   <textarea rows={4} className="w-full border rounded p-2 text-sm bg-white" value={exp.description?.join('\n') || ""} onChange={e => {const n=[...data.experience]; n[i].description = e.target.value.split('\n'); updateField('experience', n);}} />
@@ -264,8 +260,7 @@ export default function MasterResumes() {
 
         <section>
           <h2 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3 border-b pb-2">Certifications</h2>
-          <textarea rows={3} placeholder="React JS Certification - Udemy..." className="w-full border rounded-md p-2 text-sm" value={data.certifications?.join("\n") || ""} onChange={e => updateField('certifications', e.target.value.split('\n').filter(Boolean))} />
-          <p className="text-xs text-gray-500 mt-1">One certification per line</p>
+          <textarea rows={3} className="w-full border rounded-md p-2 text-sm" value={data.certifications?.join("\n") || ""} onChange={e => updateField('certifications', e.target.value.split('\n').filter(Boolean))} />
         </section>
       </div>
     </div>
