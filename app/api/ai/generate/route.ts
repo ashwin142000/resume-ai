@@ -12,6 +12,41 @@ export async function POST(req: Request) {
 
     const cleanApiKey = userApiKey.trim();
 
+    // STEP 1: Auto-Discovery (Just like the Master Resume parser!)
+    // Ask Google what models this specific API key is allowed to use
+    const modelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${cleanApiKey}`);
+    if (!modelsRes.ok) {
+       const errText = await modelsRes.text();
+       return new Response(JSON.stringify({ error: `API Key rejected by Google: ${errText}` }), { status: modelsRes.status });
+    }
+    
+    const modelsData = await modelsRes.json();
+    const availableModels = modelsData.models || [];
+    
+    // Filter for models that support text generation (1.5 or 2.0)
+    let validModels = availableModels
+        .filter((m: any) => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
+        .map((m: any) => m.name.replace('models/', ''))
+        .filter((name: string) => name.includes('1.5') || name.includes('2.0'));
+
+    // Sort to prioritize the most stable flash models first
+    validModels.sort((a: string, b: string) => {
+        const score = (name: string) => {
+            if (name === 'gemini-1.5-flash') return 10;
+            if (name === 'gemini-2.0-flash') return 9;
+            if (name.includes('gemini-1.5-flash')) return 8; 
+            if (name.includes('gemini-1.5-pro')) return 7;
+            return 0;
+        };
+        return score(b) - score(a);
+    });
+
+    if (validModels.length === 0) {
+        return new Response(JSON.stringify({ 
+            error: `Your API key does not have access to any Gemini 1.5 or 2.0 models.` 
+        }), { status: 400 });
+    }
+
     const promptText = `
       You are an expert ATS resume writer and recruiter. 
       You are given a Master Resume in JSON format and a Job Description.
@@ -55,26 +90,38 @@ export async function POST(req: Request) {
       generationConfig: { responseMimeType: "application/json", responseSchema: schema }
     };
 
-    // Reverted to gemini-1.5-flash as it is allowed on your API Key
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${cleanApiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    let data = null;
+    let errorMessages: string[] = [];
 
-    if (!res.ok) {
-        const errText = await res.text();
-        // Handle 429 Quota Exceeded properly
-        if (res.status === 429) {
-            return new Response(JSON.stringify({ error: "Google API Quota Exceeded (15 requests/min). Please wait exactly 60 seconds." }), { status: 429 });
+    // STEP 2: Try the top 3 available models your key has access to
+    const modelsToTry = validModels.slice(0, 3);
+
+    for (const model of modelsToTry) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanApiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          errorMessages.push(`[${model}] failed: ${errText}`);
+          continue; 
         }
-        return new Response(JSON.stringify({ error: `Google API Error: ${errText}` }), { status: res.status });
+
+        data = await res.json();
+        break; // Success! Exit the loop.
+      } catch (e: any) {
+        errorMessages.push(`[${model}] threw an exception: ${e.message}`);
+      }
     }
 
-    const data = await res.json();
-    
-    if (!data.candidates || data.candidates.length === 0) {
-       return new Response(JSON.stringify({ error: "Google Gemini returned an empty response." }), { status: 400 });
+    if (!data) {
+      const combinedErrors = errorMessages.join(' \n\n ');
+      return new Response(JSON.stringify({ 
+          error: `All allowed models failed. \n\nModels attempted: ${modelsToTry.join(', ')}\n\nErrors:\n${combinedErrors}` 
+      }), { status: 400 });
     }
 
     let textResponse = data.candidates[0].content.parts[0].text;
