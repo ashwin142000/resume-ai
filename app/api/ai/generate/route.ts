@@ -12,17 +12,20 @@ export async function POST(req: Request) {
 
     const cleanApiKey = userApiKey.trim();
 
+    // UPDATED PROMPT: Encouraging detailed, descriptive content to fill the page
     const promptText = `
       You are an expert ATS resume writer and recruiter. 
       You are given a Master Resume in JSON format and a Job Description.
       Your task is to tailor the Master Resume to perfectly match the Job Description.
 
-      STRICT RULES:
-      1. The final resume MUST fit on a single page. Keep everything short, crisp, and highly impactful.
-      2. Experience: Limit to the top 3-4 most critical achievements per role. Delete unnecessary fluff.
-      3. Projects: Limit to the top 2 most relevant projects.
-      4. Extract missing keywords from the JD that the candidate lacks.
-      5. You MUST output ONLY a valid JSON object matching the schema below. No markdown wrappers.
+      STRICT RULES FOR HIGH-QUALITY CONTENT:
+      1. The final resume MUST be comprehensive and descriptive enough to beautifully fill a full single page. Do not make it too sparse or short.
+      2. Professional Summary: Write a compelling, detailed 4-5 sentence paragraph that heavily incorporates the target keywords and highlights the candidate's core value proposition.
+      3. Experience: Include 4-6 highly detailed, impactful bullet points per role. Ensure bullets are descriptive, demonstrate technical depth, and clearly show the value brought to the company using keywords from the JD. DO NOT over-condense; keep the rich technical details from the master resume and enhance them.
+      4. Projects: Include up to 3 detailed projects with 2-3 descriptive bullet points each.
+      5. NEVER invent experience, fake jobs, fake projects, or fake certifications.
+      6. Extract missing keywords from the JD that the candidate lacks.
+      7. You MUST output ONLY a valid JSON object matching the schema below. No markdown wrappers.
 
       EXPECTED JSON SCHEMA:
       {
@@ -42,7 +45,7 @@ export async function POST(req: Request) {
       Master Resume: ${JSON.stringify(masterResume)}
     `;
 
-    // Call Groq API using native fetch (OpenAI compatible endpoint)
+    // Call Groq API using native fetch
     const res = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
       method: 'POST',
       headers: { 
@@ -50,13 +53,12 @@ export async function POST(req: Request) {
           'Authorization': `Bearer ${cleanApiKey}`
       },
       body: JSON.stringify({
-          // FIX: Updated to the newest, active Llama 3.3 model on Groq
           model: "llama-3.3-70b-versatile", 
           messages: [
               { role: "system", content: "You are a JSON-generating machine. Only output valid JSON." },
               { role: "user", content: promptText }
           ],
-          response_format: { type: "json_object" } // Forces JSON output
+          response_format: { type: "json_object" } 
       })
     });
 
