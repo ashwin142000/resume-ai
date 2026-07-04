@@ -38,12 +38,11 @@ export default function Editor({ params }: { params: { id: string } }) {
   return (
     <div className="flex flex-col md:flex-row gap-6 h-[calc(100vh-100px)] print:block print:h-auto print:p-0">
       
-      {/* --- CSS to override the Browser's massive default print margins --- */}
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
           @page {
             size: A4 portrait;
-            margin: 10mm !important; /* Forces a tight 1cm margin instead of 1 inch */
+            margin: 10mm !important; 
           }
           body {
             -webkit-print-color-adjust: exact;
@@ -51,7 +50,7 @@ export default function Editor({ params }: { params: { id: string } }) {
         }
       `}} />
 
-      {/* Mobile View Toggle Tabs (Hidden on Desktop & Print) */}
+      {/* Mobile View Toggle Tabs */}
       <div className="flex md:hidden bg-white rounded-lg shadow-sm p-1 print:hidden">
         <button onClick={() => setView('edit')} className={`flex-1 py-2 text-sm font-medium rounded-md flex items-center justify-center gap-2 ${view === 'edit' ? 'bg-blue-100 text-blue-700' : 'text-gray-600'}`}>
           <Edit3 size={16}/> Edit Mode
@@ -79,6 +78,23 @@ export default function Editor({ params }: { params: { id: string } }) {
               </div>
             </div>
           )}
+
+          {/* NEW: Personal Info Section */}
+          <section>
+            <h3 className="text-xs font-bold uppercase text-gray-500 mb-2">Personal Info (Header)</h3>
+            <div className="space-y-3">
+              <input type="text" className="w-full border rounded-md p-2.5 text-sm bg-gray-50 focus:bg-white" value={data.personalInfo?.fullName || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, fullName: e.target.value})} placeholder="Full Name" />
+              <input type="text" className="w-full border rounded-md p-2.5 text-sm bg-gray-50 focus:bg-white" value={data.personalInfo?.role || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, role: e.target.value})} placeholder="Target Role / Headline" />
+              <div className="grid grid-cols-2 gap-3">
+                 <input type="text" className="w-full border rounded-md p-2.5 text-sm bg-gray-50 focus:bg-white" value={data.personalInfo?.email || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, email: e.target.value})} placeholder="Email" />
+                 <input type="text" className="w-full border rounded-md p-2.5 text-sm bg-gray-50 focus:bg-white" value={data.personalInfo?.phone || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, phone: e.target.value})} placeholder="Phone" />
+                 <input type="text" className="w-full border rounded-md p-2.5 text-sm bg-gray-50 focus:bg-white" value={data.personalInfo?.location || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, location: e.target.value})} placeholder="Location" />
+                 <input type="text" className="w-full border rounded-md p-2.5 text-sm bg-gray-50 focus:bg-white" value={data.personalInfo?.linkedin || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, linkedin: e.target.value})} placeholder="LinkedIn URL" />
+                 <input type="text" className="w-full border rounded-md p-2.5 text-sm bg-gray-50 focus:bg-white" value={data.personalInfo?.github || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, github: e.target.value})} placeholder="GitHub URL" />
+                 <input type="text" className="w-full border rounded-md p-2.5 text-sm bg-gray-50 focus:bg-white" value={data.personalInfo?.portfolio || ""} onChange={e => updateField('personalInfo', {...data.personalInfo, portfolio: e.target.value})} placeholder="Portfolio URL" />
+              </div>
+            </div>
+          </section>
 
           <section>
             <h3 className="text-xs font-bold uppercase text-gray-500 mb-2">Summary</h3>
@@ -151,7 +167,6 @@ export default function Editor({ params }: { params: { id: string } }) {
           </button>
         </div>
 
-        {/* Printable Area - Tightened margins and typography */}
         <div className="flex-1 overflow-y-auto bg-gray-100 rounded-xl flex justify-center print:bg-white print:p-0 print:overflow-visible">
           <div className="bg-white p-[15mm] w-full max-w-[210mm] min-h-[297mm] shadow-md print:shadow-none print:m-0 print:p-0 print:max-w-none text-gray-900 font-sans leading-tight my-4 md:my-0">
             
@@ -164,6 +179,7 @@ export default function Editor({ params }: { params: { id: string } }) {
                 {data.personalInfo?.location && <span>| {data.personalInfo.location}</span>}
                 {data.personalInfo?.linkedin && <span>| {data.personalInfo.linkedin}</span>}
                 {data.personalInfo?.github && <span>| {data.personalInfo.github}</span>}
+                {data.personalInfo?.portfolio && <span>| {data.personalInfo.portfolio}</span>}
               </div>
             </header>
             
