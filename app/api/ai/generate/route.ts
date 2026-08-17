@@ -12,42 +12,12 @@ export async function POST(req: Request) {
 
     const cleanApiKey = userApiKey.trim();
 
-    // ============================================================================
-    // STEP 1: GROQ AUTO-DISCOVERY (FUTURE-PROOFING)
-    // ============================================================================
-    let selectedModel = "llama3-70b-8192"; // Absolute fallback
-    
-    const modelsRes = await fetch(`https://api.groq.com/openai/v1/models`, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${cleanApiKey}` }
-    });
-
-    if (!modelsRes.ok) {
-      if (modelsRes.status === 401) {
-        return new Response(JSON.stringify({ error: "Invalid Groq API Key. Please update it in Settings." }), { status: 401 });
-      }
-      // If fetching models fails for another reason, we just let it try the fallback model below
-    } else {
-      const modelsData = await modelsRes.json();
-      const availableModels = modelsData.data || [];
-      
-      // Find the best available Llama model (Prefer 70b, then 8b, then anything)
-      const best70b = availableModels.find((m: any) => m.id.toLowerCase().includes('llama') && m.id.toLowerCase().includes('70b'));
-      const anyLlama = availableModels.find((m: any) => m.id.toLowerCase().includes('llama'));
-      
-      if (best70b) {
-        selectedModel = best70b.id;
-      } else if (anyLlama) {
-        selectedModel = anyLlama.id;
-      } else if (availableModels.length > 0) {
-        selectedModel = availableModels[0].id; // Just use whatever is available
-      }
+    if (!cleanApiKey.startsWith('gsk_')) {
+        return new Response(JSON.stringify({ 
+            error: "Invalid API Key format. Groq API keys must start with 'gsk_'." 
+        }), { status: 400 });
     }
 
-
-    // ============================================================================
-    // STEP 2: GENERATE THE RESUME
-    // ============================================================================
     const promptText = `
       You are an expert ATS resume writer and recruiter. 
       You are given a Master Resume in JSON format and a Job Description.
@@ -80,38 +50,66 @@ export async function POST(req: Request) {
       Master Resume: ${JSON.stringify(masterResume)}
     `;
 
-    // Call Groq API with the auto-discovered model
-    const res = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${cleanApiKey}`
-      },
-      body: JSON.stringify({
-          model: selectedModel, 
-          messages: [
-              { role: "system", content: "You are a JSON-generating machine. Only output valid JSON without markdown formatting." },
-              { role: "user", content: promptText }
-          ],
-          response_format: { type: "json_object" } 
-      })
-    });
+    // ============================================================================
+    // THE WATERFALL FALLBACK
+    // We strictly define the 3 best generation models. No security/guard models.
+    // ============================================================================
+    const modelsToTry = [
+      "llama-3.3-70b-versatile", // #1 Choice (Newest, smartest)
+      "llama-3.1-8b-instant",    // #2 Choice (Fastest, widely available)
+      "llama3-70b-8192"          // #3 Choice (Reliable legacy model)
+    ];
 
-    if (!res.ok) {
-        const errText = await res.text();
-        if (res.status === 429) return new Response(JSON.stringify({ error: "Groq API Rate Limit Exceeded. Please wait a minute and try again." }), { status: 429 });
-        return new Response(JSON.stringify({ error: `API Error (Model: ${selectedModel}): ${errText}` }), { status: res.status });
+    let data = null;
+    let lastError = "";
+
+    // Loop through the models until one works
+    for (const model of modelsToTry) {
+        const res = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
+          method: 'POST',
+          headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${cleanApiKey}`
+          },
+          body: JSON.stringify({
+              model: model, 
+              messages: [
+                  { role: "system", content: "You are a JSON-generating machine. Only output valid JSON without markdown formatting." },
+                  { role: "user", content: promptText }
+              ],
+              response_format: { type: "json_object" } 
+          })
+        });
+
+        if (res.ok) {
+            data = await res.json();
+            break; // SUCCESS! Break out of the loop immediately.
+        } else {
+            // It failed. Capture the error, but let the loop try the next model.
+            const errText = await res.text();
+            
+            // If the key is outright invalid, or the user is rate limited, stop immediately.
+            if (res.status === 429) return new Response(JSON.stringify({ error: "Groq API Rate Limit Exceeded. Please wait a minute and try again." }), { status: 429 });
+            if (res.status === 401) return new Response(JSON.stringify({ error: "Invalid Groq API Key. Please verify your key at console.groq.com" }), { status: 401 });
+            
+            lastError = errText;
+        }
     }
 
-    const data = await res.json();
-    let textResponse = data.choices[0].message.content;
-    
-    // Clean up just in case Groq adds markdown wrappers
-    textResponse = textResponse.replace(/```json/gi, '').replace(/```/gi, '').trim();
+    // If ALL models failed
+    if (!data) {
+        let cleanError = lastError;
+        try { cleanError = JSON.parse(lastError).error?.message || lastError; } catch(e){} 
+        return new Response(JSON.stringify({ error: `Groq API Error: All models failed. Last error: ${cleanError}` }), { status: 500 });
+    }
 
+    // ============================================================================
+    // PARSE & CLEANUP
+    // ============================================================================
+    let textResponse = data.choices[0].message.content;
+    textResponse = textResponse.replace(/```json/gi, '').replace(/```/gi, '').trim();
     const generatedJson = JSON.parse(textResponse);
 
-    // Final safety pass to strip accidental hyphens/asterisks from the start of descriptions
     if (generatedJson.experience) {
       generatedJson.experience = generatedJson.experience.map((exp: any) => ({
         ...exp,
@@ -132,3 +130,5 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: error.message || 'Internal Server Error' }), { status: 500 });
   }
 }
+
+
