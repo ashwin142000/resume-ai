@@ -51,17 +51,16 @@ export async function POST(req: Request) {
     `;
 
     // ============================================================================
-    // THE WATERFALL FALLBACK
-    // We strictly define the 3 best generation models. No security/guard models.
+    // THE WATERFALL FALLBACK (V2 - ACTIVE MODELS ONLY)
     // ============================================================================
     const modelsToTry = [
-      "llama-3.3-70b-versatile", // #1 Choice (Newest, smartest)
-      "llama-3.1-8b-instant",    // #2 Choice (Fastest, widely available)
-      "llama3-70b-8192"          // #3 Choice (Reliable legacy model)
+      "llama-3.3-70b-versatile", // #1: Newest Llama
+      "llama-3.1-8b-instant",    // #2: Fastest, widely available
+      "mixtral-8x7b-32768"       // #3: Completely different architecture (Rock solid fallback)
     ];
 
     let data = null;
-    let lastError = "";
+    let errorLogs: string[] = [];
 
     // Loop through the models until one works
     for (const model of modelsToTry) {
@@ -85,22 +84,24 @@ export async function POST(req: Request) {
             data = await res.json();
             break; // SUCCESS! Break out of the loop immediately.
         } else {
-            // It failed. Capture the error, but let the loop try the next model.
+            // It failed. Capture the exact error for THIS specific model.
             const errText = await res.text();
             
-            // If the key is outright invalid, or the user is rate limited, stop immediately.
+            // If it's an API Key or Rate Limit error, stop completely.
             if (res.status === 429) return new Response(JSON.stringify({ error: "Groq API Rate Limit Exceeded. Please wait a minute and try again." }), { status: 429 });
             if (res.status === 401) return new Response(JSON.stringify({ error: "Invalid Groq API Key. Please verify your key at console.groq.com" }), { status: 401 });
             
-            lastError = errText;
+            let cleanError = errText;
+            try { cleanError = JSON.parse(errText).error?.message || errText; } catch(e){} 
+            errorLogs.push(`[${model}]: ${cleanError}`);
         }
     }
 
-    // If ALL models failed
+    // If ALL models failed, print the exact reason WHY each one failed
     if (!data) {
-        let cleanError = lastError;
-        try { cleanError = JSON.parse(lastError).error?.message || lastError; } catch(e){} 
-        return new Response(JSON.stringify({ error: `Groq API Error: All models failed. Last error: ${cleanError}` }), { status: 500 });
+        return new Response(JSON.stringify({ 
+            error: `All AI models failed. Details:\n${errorLogs.join('\n')}` 
+        }), { status: 500 });
     }
 
     // ============================================================================
