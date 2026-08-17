@@ -18,6 +18,55 @@ export async function POST(req: Request) {
         }), { status: 400 });
     }
 
+    // ============================================================================
+    // THE FOOLPROOF AUTO-DISCOVERY SYSTEM
+    // ============================================================================
+    let selectedModel = "";
+    
+    // 1. Ask Groq what models this specific API key has access to
+    const modelsRes = await fetch(`https://api.groq.com/openai/v1/models`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${cleanApiKey}` }
+    });
+
+    if (!modelsRes.ok) {
+        if (modelsRes.status === 401) return new Response(JSON.stringify({ error: "Invalid Groq API Key. Please verify your key at console.groq.com" }), { status: 401 });
+        return new Response(JSON.stringify({ error: `Groq API Error: Failed to fetch models.` }), { status: modelsRes.status });
+    }
+
+    const modelsData = await modelsRes.json();
+    const availableIds: string[] = modelsData.data.map((m: any) => m.id);
+
+    // 2. Filter out audio (whisper) and security (guard) bots
+    const validTextModels = availableIds.filter(id => {
+        const lowerId = id.toLowerCase();
+        return !lowerId.includes('guard') && 
+               !lowerId.includes('whisper') && 
+               !lowerId.includes('vision') &&
+               !lowerId.includes('tool');
+    });
+
+    if (validTextModels.length === 0) {
+        return new Response(JSON.stringify({ error: "Your Groq API key does not have access to any text generation models." }), { status: 400 });
+    }
+
+    // 3. Rank the available models to get the smartest one possible
+    const getScore = (id: string) => {
+        const lowerId = id.toLowerCase();
+        if (lowerId.includes('70b')) return 100; // Prefer 70b models (Smartest)
+        if (lowerId.includes('8b')) return 50;   // Then 8b models (Fastest)
+        if (lowerId.includes('gemma')) return 30;// Fallback to Google Gemma
+        return 0;
+    };
+
+    validTextModels.sort((a, b) => getScore(b) - getScore(a));
+    
+    // 4. Select the absolute best model your account has access to right now
+    selectedModel = validTextModels[0];
+
+    // ============================================================================
+    // GENERATE THE RESUME
+    // ============================================================================
     const promptText = `
       You are an expert ATS resume writer and recruiter. 
       You are given a Master Resume in JSON format and a Job Description.
@@ -50,67 +99,40 @@ export async function POST(req: Request) {
       Master Resume: ${JSON.stringify(masterResume)}
     `;
 
-    // ============================================================================
-    // THE WATERFALL FALLBACK (V2 - ACTIVE MODELS ONLY)
-    // ============================================================================
-    const modelsToTry = [
-      "llama-3.3-70b-versatile", // #1: Newest Llama
-      "llama-3.1-8b-instant",    // #2: Fastest, widely available
-      "mixtral-8x7b-32768"       // #3: Completely different architecture (Rock solid fallback)
-    ];
+    const res = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cleanApiKey}`
+      },
+      body: JSON.stringify({
+          model: selectedModel, 
+          messages: [
+              { role: "system", content: "You are a JSON-generating machine. Only output valid JSON without markdown formatting." },
+              { role: "user", content: promptText }
+          ],
+          response_format: { type: "json_object" } 
+      })
+    });
 
-    let data = null;
-    let errorLogs: string[] = [];
-
-    // Loop through the models until one works
-    for (const model of modelsToTry) {
-        const res = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
-          method: 'POST',
-          headers: { 
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${cleanApiKey}`
-          },
-          body: JSON.stringify({
-              model: model, 
-              messages: [
-                  { role: "system", content: "You are a JSON-generating machine. Only output valid JSON without markdown formatting." },
-                  { role: "user", content: promptText }
-              ],
-              response_format: { type: "json_object" } 
-          })
-        });
-
-        if (res.ok) {
-            data = await res.json();
-            break; // SUCCESS! Break out of the loop immediately.
-        } else {
-            // It failed. Capture the exact error for THIS specific model.
-            const errText = await res.text();
-            
-            // If it's an API Key or Rate Limit error, stop completely.
-            if (res.status === 429) return new Response(JSON.stringify({ error: "Groq API Rate Limit Exceeded. Please wait a minute and try again." }), { status: 429 });
-            if (res.status === 401) return new Response(JSON.stringify({ error: "Invalid Groq API Key. Please verify your key at console.groq.com" }), { status: 401 });
-            
-            let cleanError = errText;
-            try { cleanError = JSON.parse(errText).error?.message || errText; } catch(e){} 
-            errorLogs.push(`[${model}]: ${cleanError}`);
-        }
+    if (!res.ok) {
+        const errText = await res.text();
+        let cleanError = errText;
+        try { cleanError = JSON.parse(errText).error?.message || errText; } catch(e){} 
+        
+        if (res.status === 429) return new Response(JSON.stringify({ error: "Groq API Rate Limit Exceeded. Please wait a minute and try again." }), { status: 429 });
+        return new Response(JSON.stringify({ error: `API Error (Using model ${selectedModel}): ${cleanError}` }), { status: res.status });
     }
 
-    // If ALL models failed, print the exact reason WHY each one failed
-    if (!data) {
-        return new Response(JSON.stringify({ 
-            error: `All AI models failed. Details:\n${errorLogs.join('\n')}` 
-        }), { status: 500 });
-    }
-
-    // ============================================================================
-    // PARSE & CLEANUP
-    // ============================================================================
+    const data = await res.json();
     let textResponse = data.choices[0].message.content;
+    
+    // Clean up just in case Groq adds markdown wrappers
     textResponse = textResponse.replace(/```json/gi, '').replace(/```/gi, '').trim();
+
     const generatedJson = JSON.parse(textResponse);
 
+    // Final safety pass to strip accidental hyphens/asterisks from the start of descriptions
     if (generatedJson.experience) {
       generatedJson.experience = generatedJson.experience.map((exp: any) => ({
         ...exp,
